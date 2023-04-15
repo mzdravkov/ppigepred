@@ -1,2 +1,6 @@
 pandas
 numpy
+networkx
+pydot
+scipy
+flask

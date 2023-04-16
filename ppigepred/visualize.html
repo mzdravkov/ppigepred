@@ -8,6 +8,12 @@
     <style>
       * { margin: 0; padding: 0;}
       body, html { height:100%; }
+      
+      .spacer {
+        margin-left: 5px;
+        margin-right: 5px;
+        display: inline;
+      }
 
     </style>
   </head>
@@ -15,17 +21,24 @@
     <div style="margin: 5px">
       <input type="checkbox" id="gravity" name="gravity" value="gravity" checked onclick="gravityForces=!gravityForces">
       <label for="gravity"> Gravity</label>
+      <div class="spacer"></div>
       <input type="checkbox" id="charge" name="charge" value="charge" checked onclick="chargeRepulsion=!chargeRepulsion">
       <label for="charge"> Charge repulsion</label>
+      <div class="spacer"></div>
       <input type="checkbox" id="spring" name="spring" value="spring" checked onclick="springForces=!springForces">
       <label for="degree"> Spring forces</label>
+      <div class="spacer"></div>
       <input type="checkbox" id="degree" name="degree" value="degree" checked onclick="degreeRepulsion=!degreeRepulsion">
       <label for="degree"> Degree repulsion</label>
+      <div class="spacer"></div>
       <input type="checkbox" id="angle" name="angle" value="angle" onclick="edgeAngleRepulsion=!edgeAngleRepulsion">
       <label for="angle"> Edge angle repulsion</label>
-      <input type="number" id="min_edge_score" name="min_edge_score" value="0" onchange="minEdgeScore=event.target.value; updateEdgesFlag=true;" step="25">
+      <div class="spacer"></div>
       <label for="min_edge_score"> Minimum edge score</label>
+      <input type="number" id="min_edge_score" name="min_edge_score" value="0" min="0" max="1000" onchange="minEdgeScore=event.target.value; updateEdgesFlag=true;" step="25">
 
+      <div class="spacer"></div>
+      <div class="spacer"></div>
       <button onclick="document.location.reload()">Refresh</button>
     </div>
     <br/>

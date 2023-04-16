@@ -22,7 +22,11 @@ var minDegree = 1000000;
 var maxDegree = -1;
 var maxScore = 1000;
 
+var globalPosX = 0;
+var globalPosY = 0;
+
 var maxDensity;
+var minDensity;
 
 function degree(n) {
   let degree = (neighbours.get(n) || []).length;
@@ -37,13 +41,14 @@ function percentageToHsl(percentage, hue0, hue1) {
 }
 
 // Create a new node with the given position, id and name.
-function newNode(pos, id, name, density) {
+function newNode(pos, id, name, density, isReference) {
   return {
     id: id,
     pos: pos,
     name: name,
     density: density,
     force: createVector(0, 0),
+    isReference: isReference,
     mass: () => 10*degree(id)/maxDegree + 5, // normalize the mass
     update: function() {
       let velocity = p5.Vector.div(this.force, this.mass());
@@ -51,10 +56,23 @@ function newNode(pos, id, name, density) {
     },
     draw: function() {
       noStroke();
-      let hsl = percentageToHsl(density/maxDensity, 120, 0);
-      fill(color(hsl));
+      let id = parseInt(this.id);
+      if (hoveredNode !== null &&
+          neighbours != null &&
+          neighbours.has(id) &&
+          neighbours.get(id).indexOf(parseInt(hoveredNode.id)) != -1) {
+        stroke('red');
+      }
+      if (this.isReference) {
+        fill('black');
+      } else {
+        let colorValue = (density - minDensity)/maxDensity;
+        let logisticColor = 1/(1 + Math.exp(-10*colorValue)) - 0.5;
+        let hsl = percentageToHsl(logisticColor, 120, 0);
+        fill(color(hsl));
+      }
       let diameter = 5 * this.mass();
-      ellipse(this.pos.x, this.pos.y, diameter, diameter);
+      circle(this.pos.x, this.pos.y, diameter);
     }
   };
 }
@@ -69,7 +87,13 @@ function initNodes(graphData) {
   for (let [id, nodeData] of Object.entries(graphData.nodes)) {
       let x = random(width);
       let y = random(height);
-      let node = newNode(createVector(x, y), id, nodeData.name, nodeData.density);
+    let node = newNode(
+        createVector(x, y),
+        id,
+        nodeData.name,
+        nodeData.density,
+        nodeData.is_reference
+      );
       nodes.push(node);
   }
 }
@@ -235,13 +259,14 @@ function setup() {
   let bodyWidth = document.body.clientWidth;
   let bodyHeight = document.body.clientHeight;
   createCanvas(bodyWidth, bodyHeight - 100);
-  center = createVector(width / 2, height / 2);
+  center = createVector(0, 0);
   
   graphData = readData();
   initNodes(graphData);
   initEdges(graphData);
   
-  maxDensity = Math.max(...nodes.map(function(node) { return node.density }));
+  maxDensity = Math.max(...nodes.map(function(node) { return node.isReference ? 0 : node.density }));
+  minDensity = Math.min(...nodes.map(function(node) { return node.isReference ? 1 : node.density }));
 }
 
 // Updates the currentScale variable so that the whole
@@ -255,7 +280,7 @@ function rescale() {
   let x = maxX - minX;
   let y = maxY - minY;
 
-  return 1/Math.max(x/width, y/height, 1);
+  return 0.8 * 1/Math.max(x/width, y/height, 1);
 }
 
 function updateEdges() {
@@ -295,16 +320,19 @@ function updateForces() {
   edgeAngleRepulsionContant = 0.001;
 }
 
-function draw() {
-  let currentScale = rescale();
-  if (currentScale != 1) {
-    translate(width/2, height/2);
-    scale(currentScale*0.8);
-    translate(-width/2, -height/2);
-  }
+var currentScale = 1;
+var hoveredNode = null;
 
+function draw() {
   // white background
   background(258);
+
+  translate(width/2, height/2);
+
+  currentScale = rescale();
+  if (currentScale != 1) {
+    scale(currentScale);
+  }
   
   updateForces();
  
@@ -313,15 +341,35 @@ function draw() {
     updateEdgesFlag = false;
   }
 
+  hoveredNode = null;
+  let translatedMouseX = mouseX - width/2;
+  let translatedMouseY = mouseY - height/2;
+  for (let node of nodes) {
+    let r = currentScale * 2.5 * node.mass();
+    if (dist(node.pos.x*currentScale, node.pos.y*currentScale, translatedMouseX, translatedMouseY) < r) {
+      hoveredNode = node;
+    }
+  }
+
+  edges.forEach(edge => {
+    stroke(0);
+    if (hoveredNode !== null && (edge[0].id == hoveredNode.id || edge[1].id == hoveredNode.id)) {
+      stroke('red');
+    }
+    line(edge[0].pos.x, edge[0].pos.y, edge[1].pos.x, edge[1].pos.y);
+  });
+
   nodes.forEach(node => {
     node.draw();
     node.update();
   });
 
-  edges.forEach(edge => {
-    stroke(0);
-    line(edge[0].pos.x, edge[0].pos.y, edge[1].pos.x, edge[1].pos.y);
-  });
+  if (hoveredNode !== null) {
+    textSize(14/currentScale);
+    fill('black');
+    stroke('black');
+    text(hoveredNode.name + ' (' + hoveredNode.density + ')', hoveredNode.pos.x + 10, hoveredNode.pos.y - 10)
+  }
 
   applyForces();
 }

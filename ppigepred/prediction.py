@@ -114,7 +114,11 @@ def predict_iterative(protein_interactions,
 
     node_index = {n: i for n, i in zip(subgraph.nodes(), range(len(subgraph.nodes())))}
     
-    node_data = {i: {'name': n, 'density': density[n]/iterations} for n, i in node_index.items()}
+    node_data = {i: {
+        'name': n,
+        'density': density[n]/iterations,
+        'is_reference': n in references,
+        } for n, i in node_index.items()}
 
     print(subgraph)
     subgraph_data = []

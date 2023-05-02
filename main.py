@@ -22,11 +22,10 @@ if __name__ == '__main__':
     @app.route('/subgraph')
     def serve_graph():
         data = {
-            # 'nodes': [node_index[node] for node in subgraph.nodes()],
-            'nodes': node_data, #list(node_index.keys()),
+            'nodes': node_data,
             'edges': edges,
         }
         return json.dumps(data)
 
     print('Visualization available at http://localhost:5000/')
-    app.run(debug=True, use_reloader=True)
+    app.run(debug=True, use_reloader=False)

@@ -2,8 +2,10 @@ import argparse
 import logging
 import pandas as pd
 import numpy as np
+import time
 
 from .prediction import predict, predict_iterative
+from .graphs import get_protein_graph
 
 logging.basicConfig(filename='logs.log', level=logging.DEBUG)
 
@@ -22,7 +24,7 @@ class UI:
     parser.add_argument('-i',
                         '--iterations',
                         help='Number of random walk simulations for each reference node',
-                        default=10000)
+                        default=1000)
     parser.add_argument('-mis',
                         '--min-interaction-score',
                         help='Will ignore protein interactions with combined score below the specified value. ' + \
@@ -67,6 +69,9 @@ class UI:
             candidates = set()
 
         protein_interactions = pd.read_csv(args.db)
+        
+        protein_graph = get_protein_graph(protein_interactions, references)
+
         # print(len(protein_interactions))
         # if args.min_interaction_score:
         #     min_interaction_score = int(args.min_interaction_score)
@@ -79,13 +84,22 @@ class UI:
         # print(np.median(protein_interactions['combined_score']))
         # print(np.max(protein_interactions['combined_score']))
 
-        # results = predict(protein_interactions, references, candidates)
-
-        node_index, edges = predict_iterative(protein_interactions,
-                                    references,
-                                    candidates,
-                                    iterations=int(args.iterations),
-                                    return_prob=float(args.restart_probability),
-                                    min_score=int(args.min_score))
+        t = time.time()
+        node_index, edges = predict(protein_graph,
+                          references,
+                          candidates,
+                          iterations=int(args.iterations),
+                          min_score=float(args.min_score))
+        print(time.time() - t)
         return node_index, edges
+
+        # t = time.time()
+        # node_index, edges = predict_iterative(protein_graph,
+        #                             references,
+        #                             candidates,
+        #                             iterations=int(args.iterations),
+        #                             return_prob=float(args.restart_probability),
+        #                             min_score=float(args.min_score))
+        # print(time.time() - t)
+        # return node_index, edges
 

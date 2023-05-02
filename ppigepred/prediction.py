@@ -2,92 +2,86 @@ import random
 import pandas as pd
 import numpy as np
 import networkx as nx
+import scipy
 
 from collections import defaultdict
 
 PORT = 8000
 
 
-def predict(protein_interactions, references, candidates, iterations=1000):
-    graph = nx.from_pandas_edgelist(protein_interactions, 'protein1', 'protein2', 'combined_score')
-    #adj_matrix = nx.adjacency_matrix(graph).todense()
+def predict(graph,
+            references,
+            candidates,
+            iterations=1000,
+            return_prob=0.05,
+            min_score=None):
+    # Get the adjacency matrix A.
+    adj_matrix = nx.adjacency_matrix(graph)
+    node_index = {v: i for i, v in enumerate(graph.nodes)}
 
-    # protein_columns = protein_interactions[['protein1', 'protein2']]
-    # proteins = pd.unique(protein_columns.values.ravel('K')).sort()
+    # Create a probability vector.
+    # The initial vector equal probability for all reference nodes
+    # and 0 probability for all others.
+    init_prob = np.zeros(len(graph.nodes))
+    for node in references:
+        init_prob[node_index[node]] = 1 / len(references)
 
-    # adj_matrix = pd.crosstab(protein_interactions['protein1'],
-    #                          protein_interactions['protein2'],
-    #                          protein_interactions['combined_score'],
-    #                          aggfunc=np.mean).fillna(0)
+    # Get a diagonal matrix D with the inverted sums of
+    # the adjacency matrix rows.
+    inv_sum = np.sum(adj_matrix, axis=1).astype(float) ** -1
+    deg_inverse = np.diag(inv_sum)
 
-    #print(adj_matrix)
+    # The transition matrix is D.A
+    transition = scipy.sparse.csr_matrix(deg_inverse).dot(adj_matrix)
+    transition_transp = np.transpose(transition)
 
-    node_index = {n: i for n, i in zip(graph.nodes(), range(len(graph.nodes())))}
-    num_nodes = len(graph.nodes())
+    # Perform <iterations> random walks to get the final probability vector.
+    # Each step of every random walk has <return_prob> chance of ending the walk.
+    prob = np.zeros(len(graph.nodes))
+    for _ in range(iterations):
+        current_walk_prob = init_prob
+        while random.random() >= return_prob:
+            current_walk_prob = transition_transp.dot(current_walk_prob)
+        prob += current_walk_prob/iterations
 
-    transition_matrix = np.zeros((num_nodes, num_nodes))
+    print('Probability vector:', pd.DataFrame(prob).describe())
 
-    for edge in graph.edges():
-        i = node_index[edge[0]]
-        j = node_index[edge[1]]
-        transition_matrix[i, j] = 1 / graph.degree(edge[0])
+    selected_nodes = []
+    if min_score:
+        selected_nodes = [n for n in graph.nodes if prob[node_index[n]] >= min_score]
 
-    print(transition_matrix)
-
-    power = np.linalg.matrix_power(transition_matrix, 2)
-
-    print(power)
-
-
-    # deg_matrix = np.diag(adj_matrix.gt(0).sum(axis=0))
-    # deg_matrix = np.diag(adj_matrix.sum(axis=1).A1)
-
-    #deg_inverse = np.linalg.inv(deg_matrix)
-    #print(deg_inverse)
-
-    #transition_matrix = np.multiply(deg_matrix, adj_matrix)
-    # transition_matrix = adj_matrix / deg_matrix
-    #transition_matrix = np.matmul(deg_matrix, adj_matrix)
-
-    density = defaultdict(lambda: 0)
-
-    for reference in references:
-        prob_vector = np.zeros(transition_matrix.shape[1]).reshape(-1, 1)
-        prob_vector[node_index[reference]] = 1
-        print(prob_vector)
-        for i in range(iterations):
-            if i % 100 == 0:
-                print(i)
-            prob_vector = np.dot(transition_matrix, prob_vector)
-            # density[np.argmax(prob_vector)] += 1
-
-    for gene, score in sorted(density.items(), key=lambda x: x[1], reverse=True):
-        print(gene, score)
-
-    subgraph = nx.subgraph(graph, density.keys())
+    subgraph = nx.subgraph(graph, selected_nodes)
     print(subgraph)
-    with open('subgraph.csv', 'w') as f:
-        for edge in subgraph.edges():
-            score = subgraph.get_edge_data(*edge)['combined_score']
-            line = "{},{},{}\n".format(edge[0], edge[1], score)
-            f.write(line)
 
+    selected_node_index = {n: i for i, n in enumerate(subgraph.nodes)}
 
-    # print(protein_interactions)
-    
+    node_data = {i: {
+        'name': n,
+        'density': prob[node_index[n]],
+        'is_reference': n in references,
+        } for n, i in selected_node_index.items()}
+
+    subgraph_data = []
+    for edge in subgraph.edges():
+         node1_index = selected_node_index[edge[0]]
+         node2_index = selected_node_index[edge[1]]
+         score = subgraph.get_edge_data(*edge)['combined_score']
+         subgraph_data.append((node1_index, node2_index, score))
+
+    return node_data, subgraph_data
+
 
 def get_edge_value(dictionary, edge):
     return dictionary.get(edge, dictionary.get((edge[1], edge[0])))
 
 
-def predict_iterative(protein_interactions,
+def predict_iterative(graph,
                       references,
                       candidates,
                       iterations=10000,
-                      return_prob=0.2,
+                      return_prob=0.05,
                       min_score=None):
     density = defaultdict(lambda: 0)
-    graph = nx.from_pandas_edgelist(protein_interactions, 'protein1', 'protein2', 'combined_score')
     scores = nx.get_edge_attributes(graph, 'combined_score')
     for start in references:
         current_node = start
@@ -101,7 +95,7 @@ def predict_iterative(protein_interactions,
                 neighbors = [e[1] for e in edges]
                 current_node = random.choices(neighbors, weights=edge_scores, k=1)[0]
             density[current_node] += 1
-            
+
     # if a minimum score is specified we filter
     # out all proteins with score < minimum_score
     if min_score:
@@ -113,7 +107,7 @@ def predict_iterative(protein_interactions,
     subgraph = nx.subgraph(graph, density.keys())
 
     node_index = {n: i for n, i in zip(subgraph.nodes(), range(len(subgraph.nodes())))}
-    
+
     node_data = {i: {
         'name': n,
         'density': density[n]/iterations,
@@ -127,7 +121,7 @@ def predict_iterative(protein_interactions,
          node2_index = node_index[edge[1]]
          score = subgraph.get_edge_data(*edge)['combined_score']
          subgraph_data.append((node1_index, node2_index, score))
-    
+
     return node_data, subgraph_data
 
     # with open('subgraph.csv', 'w') as f:

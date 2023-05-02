@@ -2,7 +2,10 @@ import argparse
 import logging
 import pandas as pd
 import numpy as np
+import json
 import time
+
+from flask import Flask
 
 from .prediction import predict, predict_iterative
 from .graphs import get_protein_graph
@@ -21,8 +24,8 @@ class UI:
                         '--restart-probability',
                         help='Probability of returning back to the initial node when doing the random walk simulation',
                         default=0.2)
-    parser.add_argument('-i',
-                        '--iterations',
+    parser.add_argument('-w',
+                        '--walks',
                         help='Number of random walk simulations for each reference node',
                         default=1000)
     parser.add_argument('-mis',
@@ -34,6 +37,10 @@ class UI:
                         '--min-score',
                         help='Minimum score to filter out insignificant results.',
                         default=10)
+    parser.add_argument('-i',
+                        '--interactive',
+                        help='Run interactive graph visualization server.',
+                        action='store_true')
 
     ref_group = parser.add_mutually_exclusive_group(required=True)
     ref_group.add_argument("-r",
@@ -72,34 +79,51 @@ class UI:
         
         protein_graph = get_protein_graph(protein_interactions, references)
 
-        # print(len(protein_interactions))
-        # if args.min_interaction_score:
-        #     min_interaction_score = int(args.min_interaction_score)
-        #     relevant_interactions = protein_interactions['combined_score'] > min_interaction_score
-        #     protein_interactions = protein_interactions[relevant_interactions]
-        # print(len(protein_interactions))
-
-        # print(np.min(protein_interactions['combined_score']))
-        # print(np.mean(protein_interactions['combined_score']))
-        # print(np.median(protein_interactions['combined_score']))
-        # print(np.max(protein_interactions['combined_score']))
-
         t = time.time()
         node_index, edges = predict(protein_graph,
                           references,
                           candidates,
-                          iterations=int(args.iterations),
+                          walks=int(args.walks),
                           min_score=float(args.min_score))
         print(time.time() - t)
-        return node_index, edges
 
-        # t = time.time()
-        # node_index, edges = predict_iterative(protein_graph,
-        #                             references,
-        #                             candidates,
-        #                             iterations=int(args.iterations),
-        #                             return_prob=float(args.restart_probability),
-        #                             min_score=float(args.min_score))
-        # print(time.time() - t)
-        # return node_index, edges
+        t = time.time()
+        node_index, edges = predict_iterative(protein_graph,
+                                    references,
+                                    candidates,
+                                    walks=int(args.walks),
+                                    return_prob=float(args.restart_probability),
+                                    min_score=float(args.min_score))
+        print(time.time() - t)
+
+        if args.interactive:
+            cls.run_interactive(node_index, edges)
+        
+
+    def run_interactive(node_index, edges):
+        """Runs a flask web server with an interactive
+        visualization of the obtained protein-protein
+        interaction graph."""
+        app = Flask(__name__)
+
+        @app.route('/')
+        def visualize():
+            f = open('ppigepred/visualize.html')
+            return f.read()
+
+        @app.route('/graphjs')
+        def graphjs():
+            f = open('ppigepred/graph.js')
+            return f.read()
+
+        @app.route('/subgraph')
+        def serve_graph():
+            data = {
+                'nodes': node_index,
+                'edges': edges,
+            }
+            return json.dumps(data)
+
+        print('Visualization available at http://localhost:5000/')
+        app.run(debug=True, use_reloader=False)
 

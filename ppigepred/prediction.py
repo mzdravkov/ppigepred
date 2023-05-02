@@ -1,18 +1,18 @@
 import random
+import logging
+
+from collections import defaultdict
+
 import pandas as pd
 import numpy as np
 import networkx as nx
 import scipy
 
-from collections import defaultdict
-
-PORT = 8000
-
 
 def predict(graph,
             references,
             candidates,
-            iterations=1000,
+            walks=1000,
             return_prob=0.05,
             min_score=None):
     # Get the adjacency matrix A.
@@ -38,21 +38,24 @@ def predict(graph,
     # Perform <iterations> random walks to get the final probability vector.
     # Each step of every random walk has <return_prob> chance of ending the walk.
     prob = np.zeros(len(graph.nodes))
-    for _ in range(iterations):
+    for _ in range(walks):
         current_walk_prob = init_prob
         while random.random() >= return_prob:
             current_walk_prob = transition_transp.dot(current_walk_prob)
-        prob += current_walk_prob/iterations
+        prob += current_walk_prob/walks
 
-    print('Probability vector:', pd.DataFrame(prob).describe())
+    logging.info('Probability vector: %s', pd.DataFrame(prob).describe())
 
+    # if a minimum score is specified we filter
+    # out all proteins with score < minimum_score
     selected_nodes = []
     if min_score:
         selected_nodes = [n for n in graph.nodes if prob[node_index[n]] >= min_score]
 
     subgraph = nx.subgraph(graph, selected_nodes)
-    print(subgraph)
+    logging.info(subgraph)
 
+    # prepare data for visalization
     selected_node_index = {n: i for i, n in enumerate(subgraph.nodes)}
 
     node_data = {i: {
@@ -78,43 +81,42 @@ def get_edge_value(dictionary, edge):
 def predict_iterative(graph,
                       references,
                       candidates,
-                      iterations=10000,
+                      walks=10000,
                       return_prob=0.05,
                       min_score=None):
     density = defaultdict(lambda: 0)
     scores = nx.get_edge_attributes(graph, 'combined_score')
     for start in references:
         current_node = start
-        for i in range(iterations):
-            if random.random() <= return_prob:
-                current_node = start
-            else:
-                # neighbors = list(nx.neighbors(graph, current_node))
+        density[current_node] += 1
+        for _ in range(walks):
+            while random.random() >= return_prob:
                 edges = list(nx.edges(graph, current_node))
                 edge_scores = [get_edge_value(scores, e) for e in edges]
                 neighbors = [e[1] for e in edges]
                 current_node = random.choices(neighbors, weights=edge_scores, k=1)[0]
-            density[current_node] += 1
+                density[current_node] += 1
+            current_node = start
 
     # if a minimum score is specified we filter
     # out all proteins with score < minimum_score
     if min_score:
         density = {prot: score for prot, score in density.items() if score >= min_score}
 
-    for gene, score in sorted(density.items(), key=lambda x: x[1], reverse=True):
-        print(gene, score/iterations)
+    # for gene, score in sorted(density.items(), key=lambda x: x[1], reverse=True):
+    #     print(gene, score/walks)
 
     subgraph = nx.subgraph(graph, density.keys())
+    logging.info(subgraph)
 
     node_index = {n: i for n, i in zip(subgraph.nodes(), range(len(subgraph.nodes())))}
 
     node_data = {i: {
         'name': n,
-        'density': density[n]/iterations,
+        'density': density[n]/walks,
         'is_reference': n in references,
         } for n, i in node_index.items()}
 
-    print(subgraph)
     subgraph_data = []
     for edge in subgraph.edges():
          node1_index = node_index[edge[0]]

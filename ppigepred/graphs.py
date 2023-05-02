@@ -14,10 +14,15 @@ def remove_disconnected_components(graph, references):
     return nx.induced_subgraph(graph, all_connected_nodes)
 
 
-def get_protein_graph(protein_interactions, references):
+def get_protein_graph(protein_interactions, references, candidates=None):
     """Creates a graph from a dataframe with protein interactions.
     The graph won't contain components disconnected from the
     provided reference nodes."""
+    if candidates:
+        relevant = set(*references).update(candidates)
+        selected_rows = protein_interactions.protein1.isin(relevant) \
+                        | protein_interactions.protein2.isin(relevant)
+        protein_interactions = protein_interactions[selected_rows]
     graph = nx.from_pandas_edgelist(protein_interactions,
                                     'protein1',
                                     'protein2',

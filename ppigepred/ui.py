@@ -3,11 +3,11 @@ import logging
 import pandas as pd
 import numpy as np
 import json
-import time
+import multiprocessing
 
 from flask import Flask
 
-from .prediction import predict, predict_iterative
+from .prediction import predict
 from .graphs import get_protein_graph
 
 logging.basicConfig(filename='logs.log', level=logging.DEBUG)
@@ -23,24 +23,34 @@ class UI:
     parser.add_argument('-rp',
                         '--restart-probability',
                         help='Probability of returning back to the initial node when doing the random walk simulation',
+                        type=float,
                         default=0.2)
     parser.add_argument('-w',
                         '--walks',
                         help='Number of random walk simulations for each reference node',
+                        type=int,
                         default=1000)
     parser.add_argument('-mis',
                         '--min-interaction-score',
                         help='Will ignore protein interactions with combined score below the specified value. ' + \
                              '(this filters the input network on which the random walk is performed)',
+                        type=int,
                         default=10)
     parser.add_argument('-m',
                         '--min-score',
                         help='Minimum score to filter out insignificant results.',
-                        default=10)
+                        type=float,
+                        default=0.0005)
     parser.add_argument('-i',
                         '--interactive',
                         help='Run interactive graph visualization server.',
                         action='store_true')
+    parser.add_argument('-p',
+                        '--processes',
+                        help='Number of processes that will be used.',
+                        default=1,
+                        type=int,
+                        choices=range(1, multiprocessing.cpu_count()))
 
     ref_group = parser.add_mutually_exclusive_group(required=True)
     ref_group.add_argument("-r",
@@ -77,24 +87,14 @@ class UI:
 
         protein_interactions = pd.read_csv(args.db)
         
-        protein_graph = get_protein_graph(protein_interactions, references)
+        protein_graph = get_protein_graph(protein_interactions, references, candidates)
 
-        t = time.time()
         node_index, edges = predict(protein_graph,
                           references,
-                          candidates,
-                          walks=int(args.walks),
-                          min_score=float(args.min_score))
-        print(time.time() - t)
-
-        t = time.time()
-        node_index, edges = predict_iterative(protein_graph,
-                                    references,
-                                    candidates,
-                                    walks=int(args.walks),
-                                    return_prob=float(args.restart_probability),
-                                    min_score=float(args.min_score))
-        print(time.time() - t)
+                          walks=args.walks,
+                          return_prob=args.restart_probability,
+                          min_score=args.min_score,
+                          processes=args.processes)
 
         if args.interactive:
             cls.run_interactive(node_index, edges)

@@ -1,7 +1,7 @@
 import logging
 import random
 
-from collections import defaultdict
+from collections import OrderedDict
 from concurrent.futures import ProcessPoolExecutor
 from functools import partial
 
@@ -27,8 +27,10 @@ def predict(graph,
             references,
             walks=1000,
             return_prob=0.05,
-            min_score=None,
             processes=1):
+    """Simulates multiple random walks with restart from a set
+    of reference nodes to calculate the probability densitiy
+    for all nodes in the graph"""
     # Get the adjacency matrix A.
     adj_matrix = nx.adjacency_matrix(graph)
     node_index = {v: i for i, v in enumerate(graph.nodes)}
@@ -67,43 +69,19 @@ def predict(graph,
 
     logging.info('Probability vector: %s', pd.DataFrame(prob).describe())
 
-    # if a minimum score is specified we filter
-    # out all proteins with score < minimum_score
-    selected_nodes = graph.nodes
+    return {v: prob[i] for v, i in node_index.items()}
+
+def filter_probabilities(probabilities, min_score, top):
+    """Takes a dict of node probabilities, a min score, and requested number
+    of top nodes and returns an ordered dictionary of the top nodes with score
+    higher than the provided value."""
+    filtered_probabilities = probabilities
     if min_score:
-        selected_nodes = [n for n in graph.nodes if prob[node_index[n]] >= min_score]
+        filtered_probabilities = {v: p for v, p in probabilities.items()
+                                  if p >= min_score}
 
-    subgraph = nx.subgraph(graph, selected_nodes)
-    logging.info(subgraph)
-
-    # prepare data for visalization
-    selected_node_index = {n: i for i, n in enumerate(subgraph.nodes)}
-
-    node_data = {i: {
-        'name': n,
-        'density': prob[node_index[n]],
-        'is_reference': n in references,
-        } for n, i in selected_node_index.items()}
-
-    subgraph_data = []
-    for edge in subgraph.edges():
-         node1_index = selected_node_index[edge[0]]
-         node2_index = selected_node_index[edge[1]]
-         score = subgraph.get_edge_data(*edge)['combined_score']
-         subgraph_data.append((node1_index, node2_index, score))
-
-    return node_data, subgraph_data
-
-
-    # with open('subgraph.csv', 'w') as f:
-    #     for edge in subgraph.edges():
-    #         score = subgraph.get_edge_data(*edge)['combined_score']
-    #         line = "{},{},{}\n".format(edge[0], edge[1], score)
-    #         f.write(line)
-
-
-
-    # dot = nx.nx_pydot.to_pydot(subgraph)
-    # with open('subgraph.dot', 'w') as f:
-    #     f.write(str(dot))
-
+    ordered_proteins = sorted(filtered_probabilities.items(),
+                              key=lambda x: x[1],
+                              reverse=True)
+    limit = top if top else len(filtered_probabilities)
+    return OrderedDict(ordered_proteins[:limit])

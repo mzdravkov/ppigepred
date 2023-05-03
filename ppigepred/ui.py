@@ -1,16 +1,22 @@
 import argparse
-import logging
-import pandas as pd
-import numpy as np
+import csv
 import json
+import logging
 import multiprocessing
+
+import pandas as pd
 
 from flask import Flask
 
-from .prediction import predict
 from .graphs import get_protein_graph
+from .graphs import filter_graph
+from .graphs import export_to_dot
+from .prediction import predict
+from .prediction import filter_probabilities
+
 
 logging.basicConfig(filename='logs.log', level=logging.DEBUG)
+
 
 class UI:
     parser = argparse.ArgumentParser(
@@ -22,7 +28,8 @@ class UI:
                         required=True)
     parser.add_argument('-rp',
                         '--restart-probability',
-                        help='Probability of returning back to the initial node when doing the random walk simulation',
+                        help='Probability of returning back to the initial node ' + \
+                             'when doing the random walk simulation',
                         type=float,
                         default=0.2)
     parser.add_argument('-w',
@@ -32,8 +39,10 @@ class UI:
                         default=1000)
     parser.add_argument('-mis',
                         '--min-interaction-score',
-                        help='Will ignore protein interactions with combined score below the specified value. ' + \
-                             '(this filters the input network on which the random walk is performed)',
+                        help='Will ignore protein interactions with combined ' + \
+                             'score below the specified value. ' + \
+                             '(this filters the input network on which ' + \
+                             'the random walk is performed)',
                         type=int,
                         default=10)
     parser.add_argument('-m',
@@ -51,6 +60,17 @@ class UI:
                         default=1,
                         type=int,
                         choices=range(1, multiprocessing.cpu_count()))
+    parser.add_argument('-t',
+                        '--top',
+                        help='Get only the top N proteins',
+                        type=int)
+    parser.add_argument('-o',
+                        '--output',
+                        help='Output file')
+    parser.add_argument('-gv',
+                        '--graphviz',
+                        help='Export the graph induced by the relevant ' + \
+                             'nodes to a GraphViz dot file.')
 
     ref_group = parser.add_mutually_exclusive_group(required=True)
     ref_group.add_argument("-r",
@@ -87,20 +107,64 @@ class UI:
 
         protein_interactions = pd.read_csv(args.db)
         
-        protein_graph = get_protein_graph(protein_interactions, references, candidates)
+        protein_graph = get_protein_graph(protein_interactions,
+                                          references,
+                                          candidates)
 
-        node_index, edges = predict(protein_graph,
-                          references,
-                          walks=args.walks,
-                          return_prob=args.restart_probability,
-                          min_score=args.min_score,
-                          processes=args.processes)
+        probabilities = predict(protein_graph,
+                                references,
+                                walks=args.walks,
+                                return_prob=args.restart_probability,
+                                processes=args.processes)
+
+        # Filter probabilities based on the user's input
+        # (remove low score nodes or lower-ranked ones).
+        probabilities = filter_probabilities(probabilities,
+                                             args.min_score,
+                                             args.top)
+        
+        # Get the subgraph induced by the relevant nodes.
+        graph = filter_graph(protein_graph, probabilities)
+
+        if args.output:
+            with open(args.output, 'w') as file:
+                writer = csv.writer(file)
+                writer.writerow(('protein', 'probability'))
+                writer.writerows(probabilities.items())
+        else:
+            for prot, prob in probabilities.items():
+                print("{},{:.8f}".format(prot, prob))
+                
+        if args.graphviz:
+            export_to_dot(graph, args.graphviz)
 
         if args.interactive:
-            cls.run_interactive(node_index, edges)
-        
+            node_data, edges = cls.prepare_interactive_data(graph,
+                                                            probabilities,
+                                                            references)
+            cls.run_interactive(node_data, edges)
+                        
 
-    def run_interactive(node_index, edges):
+    def prepare_interactive_data(graph, probabilities, references):
+        selected_node_index = {n: i for i, n in enumerate(graph.nodes)}
+
+        node_data = {i: {
+            'name': n,
+            'density': probabilities[n],
+            'is_reference': n in references,
+            } for n, i in selected_node_index.items()}
+
+        subgraph_data = []
+        for edge in graph.edges():
+             node1_index = selected_node_index[edge[0]]
+             node2_index = selected_node_index[edge[1]]
+             score = graph.get_edge_data(*edge)['combined_score']
+             subgraph_data.append((node1_index, node2_index, score))
+
+        return node_data, subgraph_data
+    
+
+    def run_interactive(node_data, edges):
         """Runs a flask web server with an interactive
         visualization of the obtained protein-protein
         interaction graph."""
@@ -119,7 +183,7 @@ class UI:
         @app.route('/subgraph')
         def serve_graph():
             data = {
-                'nodes': node_index,
+                'nodes': node_data,
                 'edges': edges,
             }
             return json.dumps(data)

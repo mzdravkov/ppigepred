@@ -33,3 +33,14 @@ def get_protein_graph(protein_interactions, references, candidates=None):
     return filtered_graph
     
     
+def filter_graph(graph, probabilities):
+    """Returns a subgraph containing only nodes with probability > min_score"""
+    subgraph = nx.subgraph(graph, probabilities.keys())
+    logging.info(subgraph)
+    return subgraph
+
+
+def export_to_dot(graph, filename):
+    dot = nx.nx_pydot.to_pydot(graph)
+    with open(filename, 'w') as file:
+        file.write(str(dot))

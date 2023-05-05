@@ -7,6 +7,7 @@ import multiprocessing
 import pandas as pd
 
 from flask import Flask
+from flask import render_template
 
 from .graphs import get_protein_graph
 from .graphs import filter_graph
@@ -96,20 +97,26 @@ class UI:
         if args.references:
             references = args.references.split(',')
         else:
-            references = pd.read_csv(args.references_file)
+            references = cls.read_csv(args.references_file, header=None)
+            cls.validate_sequence_list_file(references, args.references_file)
+            references = set(references.iloc[:, 0])
 
+        candidates = None
         if args.candidates:
-            candidates = args.candidates.split(',')
+            candidates = set(args.candidates.split(','))
         elif args.candidates_file:
-            candidates = pd.read_csv(args.candidates_file)
-        else:
-            candidates = set()
+            candidates = cls.read_csv(args.candidates_file, header=None)
+            cls.validate_sequence_list_file(candidates, args.candidates_file)
+            candidates = set(candidates.iloc[:, 0])
 
-        protein_interactions = pd.read_csv(args.db)
-        
-        protein_graph = get_protein_graph(protein_interactions,
-                                          references,
-                                          candidates)
+        protein_interactions = cls.read_csv(args.db)
+        protein_interactions.columns = ['protein1', 'protein2', 'score']
+        if args.min_interaction_score:
+            selected_rows = protein_interactions.score > args.min_interaction_score
+            protein_interactions = protein_interactions[selected_rows]
+
+        protein_graph = get_protein_graph(protein_interactions, references)
+        cls.validate_protein_db_file(protein_interactions)
 
         probabilities = predict(protein_graph,
                                 references,
@@ -117,15 +124,20 @@ class UI:
                                 return_prob=args.restart_probability,
                                 processes=args.processes)
 
-        # Filter probabilities based on the user's input
-        # (remove low score nodes or lower-ranked ones).
+        # Filter probabilities based on the user's input. It removes:
+        # - nodes with low score
+        # - nodes that are ranked too low
+        # - nodes not included in the candidates set
         probabilities = filter_probabilities(probabilities,
+                                             candidates,
                                              args.min_score,
                                              args.top)
-        
+
         # Get the subgraph induced by the relevant nodes.
         graph = filter_graph(protein_graph, probabilities)
 
+        # If output file is provided, write the results there.
+        # Else, just print them to stdout.
         if args.output:
             with open(args.output, 'w') as file:
                 writer = csv.writer(file)
@@ -134,7 +146,7 @@ class UI:
         else:
             for prot, prob in probabilities.items():
                 print("{},{:.8f}".format(prot, prob))
-                
+
         if args.graphviz:
             export_to_dot(graph, args.graphviz)
 
@@ -142,8 +154,39 @@ class UI:
             node_data, edges = cls.prepare_interactive_data(graph,
                                                             probabilities,
                                                             references)
-            cls.run_interactive(node_data, edges)
-                        
+            cls.run_interactive(node_data,
+                                edges,
+                                min_interaction_score=args.min_interaction_score)
+
+
+    def read_csv(file, header='infer'):
+        try:
+            return pd.read_csv(file, header=header)
+        except Exception as err:
+            wrapper_err = RuntimeError("Cannot read file {}. Please provide a csv file.".format(file))
+            raise wrapper_err from err
+
+
+    def validate_protein_db_file(protein_interactions):
+        """Validates the proper formatting of the
+        provided protein interaction file."""
+        col_types = protein_interactions.dtypes
+        if (protein_interactions.shape[1] != 3 or
+            not pd.api.types.is_string_dtype(col_types[0]) or
+            not pd.api.types.is_string_dtype(col_types[1]) or
+            not pd.api.types.is_numeric_dtype(col_types[2])):
+            raise ValueError("Protein db file should contain three columns: " \
+                             "(protein1:str, protein2:str, score:numeric)")
+
+
+    def validate_sequence_list_file(seq_list, file):
+        """Validates the proper formatting of the
+        provided protein/gene sequence file."""
+        if (seq_list.shape[1] != 1 or
+            not pd.api.types.is_string_dtype(seq_list.iloc[:, 0].dtype)):
+            raise ValueError("{} file should contain a single headerless column " \
+                             "of protein or gene names.".format(file))
+
 
     def prepare_interactive_data(graph, probabilities, references):
         selected_node_index = {n: i for i, n in enumerate(graph.nodes)}
@@ -158,13 +201,13 @@ class UI:
         for edge in graph.edges():
              node1_index = selected_node_index[edge[0]]
              node2_index = selected_node_index[edge[1]]
-             score = graph.get_edge_data(*edge)['combined_score']
+             score = graph.get_edge_data(*edge)['score']
              subgraph_data.append((node1_index, node2_index, score))
 
         return node_data, subgraph_data
-    
 
-    def run_interactive(node_data, edges):
+
+    def run_interactive(node_data, edges, min_interaction_score=0):
         """Runs a flask web server with an interactive
         visualization of the obtained protein-protein
         interaction graph."""
@@ -172,8 +215,8 @@ class UI:
 
         @app.route('/')
         def visualize():
-            f = open('ppigepred/visualize.html')
-            return f.read()
+            return render_template('visualize.html',
+                                   min_interaction_score=min_interaction_score)
 
         @app.route('/graphjs')
         def graphjs():

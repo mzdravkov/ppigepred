@@ -24,7 +24,7 @@ $ pip install -r requirements.txt
 
 # Usage
 
-Simulate 1000 random walks with a return probability of 5% and extract the top 100 proteins that have score of at least 0.0005.
+Simulate 1000 random walks with a return probability of 5% and extract the top 100 proteins that have score of at least 0.0005. Results will be printed as a CSV to stdout.
 ```bash
 $ python main.py --db ~/protein_links.csv
                  -r ENSP00000000412,ENSP00000485663
@@ -34,7 +34,7 @@ $ python main.py --db ~/protein_links.csv
                  --top 100
 ```
 
-Simulate 10000 random walks in parallel (4 cores) with a return probability of 1% and extract the top 100 proteins.
+Simulate 10000 random walks in parallel (4 cores) with a return probability of 1% and extract the top 100 proteins, writing the results to a file.
 ```bash
 $ python main.py --db ~/protein_links.csv
                  -r ENSP00000000412,ENSP00000485663
@@ -42,6 +42,7 @@ $ python main.py --db ~/protein_links.csv
                  -rp 0.01
                  --top 100
                  -p 4
+                 -o top_100.csv
 ```
 
 Simulate 1000 random walks with a return probability of 5%, extract the top 100 proteins, and run a web server with an interactive visualization of the resulting graph.

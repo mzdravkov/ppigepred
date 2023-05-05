@@ -14,25 +14,20 @@ def remove_disconnected_components(graph, references):
     return nx.induced_subgraph(graph, all_connected_nodes)
 
 
-def get_protein_graph(protein_interactions, references, candidates=None):
+def get_protein_graph(protein_interactions, references):
     """Creates a graph from a dataframe with protein interactions.
     The graph won't contain components disconnected from the
     provided reference nodes."""
-    if candidates:
-        relevant = set(*references).update(candidates)
-        selected_rows = protein_interactions.protein1.isin(relevant) \
-                        | protein_interactions.protein2.isin(relevant)
-        protein_interactions = protein_interactions[selected_rows]
     graph = nx.from_pandas_edgelist(protein_interactions,
                                     'protein1',
                                     'protein2',
-                                    'combined_score')
+                                    'score')
     logging.info("Initial number of nodes: %d", len(graph.nodes))
     filtered_graph = remove_disconnected_components(graph, references)
     logging.info("Nodes after removing disconnected components: %d", len(filtered_graph.nodes))
     return filtered_graph
-    
-    
+
+
 def filter_graph(graph, probabilities):
     """Returns a subgraph containing only nodes with probability > min_score"""
     subgraph = nx.subgraph(graph, probabilities.keys())

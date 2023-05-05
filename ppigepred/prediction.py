@@ -71,14 +71,22 @@ def predict(graph,
 
     return {v: prob[i] for v, i in node_index.items()}
 
-def filter_probabilities(probabilities, min_score, top):
-    """Takes a dict of node probabilities, a min score, and requested number
-    of top nodes and returns an ordered dictionary of the top nodes with score
-    higher than the provided value."""
+
+def filter_probabilities(probabilities, candidates, min_score, top):
+    """Takes a dict of node probabilities and returns
+    only the probabilities that match all provided filters.
+    Filters out all probabilities that:
+    - Have a score lower than the provided one.
+    - Are not in the candidates set.
+    - Have insufficient rank."""
     filtered_probabilities = probabilities
     if min_score:
         filtered_probabilities = {v: p for v, p in probabilities.items()
                                   if p >= min_score}
+
+    if candidates is not None:
+        filtered_probabilities = {v: p for v, p in filtered_probabilities.items()
+                                  if v in candidates}
 
     ordered_proteins = sorted(filtered_probabilities.items(),
                               key=lambda x: x[1],

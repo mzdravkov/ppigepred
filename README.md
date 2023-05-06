@@ -9,6 +9,7 @@ Prediction is done using a basic random walk with restart approach.
 - Interactive graph visalization
 - Export graph to graphviz dot
 - Parallelism
+- Supports both protein and gene ids for input/output.
 
 # Installation
 
@@ -43,6 +44,17 @@ $ python main.py --db ~/protein_links.csv
                  --top 100
                  -p 4
                  -o top_100.csv
+```
+
+Filter protein interaction network to include only interactions with score > 500, simulate 1000 random walks with a return probability of 5% and extract the top 50 genes. Note that we're passing ensemble gene ids and the program would also output gene ids instead of protein ids.
+```bash
+$ python main.py --db ~/protein_links.csv
+                 -r ENSG00000000003,ENSG00000000005,ENSG00000000419
+                 -w 1000
+                 -rp 0.05
+                 --top 50
+                 --min-interaction-score 500
+                 --gene_ids
 ```
 
 Simulate 1000 random walks with a return probability of 5%, extract the top 100 proteins, and run a web server with an interactive visualization of the resulting graph.

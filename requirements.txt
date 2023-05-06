@@ -4,3 +4,4 @@ networkx
 pydot
 scipy
 flask
+pyensembl

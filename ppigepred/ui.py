@@ -4,11 +4,15 @@ import json
 import logging
 import multiprocessing
 
+import networkx as nx
 import pandas as pd
 
 from flask import Flask
 from flask import render_template
 
+from .bioseqs import get_ensembl_release
+from .bioseqs import gene_ids_to_protein_ids
+from .bioseqs import protein_ids_to_gene_ids
 from .graphs import get_protein_graph
 from .graphs import filter_graph
 from .graphs import export_to_dot
@@ -72,6 +76,15 @@ class UI:
                         '--graphviz',
                         help='Export the graph induced by the relevant ' + \
                              'nodes to a GraphViz dot file.')
+    parser.add_argument('-g',
+                        '--gene_ids',
+                        action='store_true',
+                        help='Use ENSEMBL gene ids instead of ENSEMBL protein ids.')
+    parser.add_argument('-a',
+                        '--assembly',
+                        type=str,
+                        default='GRCh38',
+                        help='Allows to specify the assembly that will be used if --gene_ids flag is up.')
 
     ref_group = parser.add_mutually_exclusive_group(required=True)
     ref_group.add_argument("-r",
@@ -101,6 +114,12 @@ class UI:
             cls.validate_sequence_list_file(references, args.references_file)
             references = set(references.iloc[:, 0])
 
+        # If gene ids are used, convert the provided gene ids to
+        # protein ids for internal use.
+        if args.gene_ids:
+            ensembl = get_ensembl_release(args.assembly)
+            references = gene_ids_to_protein_ids(ensembl, references)
+
         candidates = None
         if args.candidates:
             candidates = set(args.candidates.split(','))
@@ -110,13 +129,13 @@ class UI:
             candidates = set(candidates.iloc[:, 0])
 
         protein_interactions = cls.read_csv(args.db)
+        cls.validate_protein_db_file(protein_interactions)
         protein_interactions.columns = ['protein1', 'protein2', 'score']
         if args.min_interaction_score:
             selected_rows = protein_interactions.score > args.min_interaction_score
             protein_interactions = protein_interactions[selected_rows]
 
         protein_graph = get_protein_graph(protein_interactions, references)
-        cls.validate_protein_db_file(protein_interactions)
 
         probabilities = predict(protein_graph,
                                 references,
@@ -135,6 +154,14 @@ class UI:
 
         # Get the subgraph induced by the relevant nodes.
         graph = filter_graph(protein_graph, probabilities)
+
+        # If gene ids are used, convert the internally
+        # used protein ids to gene ids for output.
+        if args.gene_ids:
+            prot_to_gene_mapping = protein_ids_to_gene_ids(ensembl, probabilities)
+            graph = nx.relabel_nodes(graph, prot_to_gene_mapping)
+            probabilities = {prot_to_gene_mapping[prot_id]: prob
+                             for prot_id, prob in probabilities.items()}
 
         # If output file is provided, write the results there.
         # Else, just print them to stdout.

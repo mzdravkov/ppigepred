@@ -10,6 +10,7 @@ import numpy as np
 import pandas as pd
 import scipy
 
+from .bioseqs import protein_ids_to_gene_ids
 
 def simulate_random_walks(return_prob, transition_transp, init_prob, num_walks):
     """Performs <num_walks> number of random walks (with a restart)
@@ -72,13 +73,12 @@ def predict(graph,
     return {v: prob[i] for v, i in node_index.items()}
 
 
-def filter_probabilities(probabilities, candidates, min_score, top):
+def filter_probabilities(probabilities, candidates, min_score):
     """Takes a dict of node probabilities and returns
     only the probabilities that match all provided filters.
     Filters out all probabilities that:
     - Have a score lower than the provided one.
-    - Are not in the candidates set.
-    - Have insufficient rank."""
+    - Are not in the candidates set."""
     filtered_probabilities = probabilities
     if min_score:
         filtered_probabilities = {v: p for v, p in probabilities.items()
@@ -88,8 +88,23 @@ def filter_probabilities(probabilities, candidates, min_score, top):
         filtered_probabilities = {v: p for v, p in filtered_probabilities.items()
                                   if v in candidates}
 
-    ordered_proteins = sorted(filtered_probabilities.items(),
-                              key=lambda x: x[1],
-                              reverse=True)
-    limit = top if top else len(filtered_probabilities)
-    return OrderedDict(ordered_proteins[:limit])
+    return filtered_probabilities
+
+
+def convert_to_gene_probabilities(probabilities, ensembl, graph, top=None):
+    """Converts a dictionary of protein probabilities to
+    a new dictionary of gene probabilities.
+    If the "top=N" parameter is provided it would
+    only take the top N genes"""
+    prot_to_gene = protein_ids_to_gene_ids(ensembl, probabilities)
+    graph = nx.relabel_nodes(graph, prot_to_gene)
+    gene_probabilities = OrderedDict()
+    for prot_id, prob in probabilities.items():
+        gene_id = prot_to_gene[prot_id]
+        if gene_id not in gene_probabilities:
+            gene_probabilities[gene_id] = prob
+        elif prob > gene_probabilities[gene_id]:
+            gene_probabilities[gene_id] = prob
+        if top and len(gene_probabilities) >= top:
+            break
+    return gene_probabilities

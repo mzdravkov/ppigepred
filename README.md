@@ -39,14 +39,14 @@ Simulate 10000 random walks in parallel (4 cores) with a return probability of 1
 ```bash
 $ python main.py --db ~/protein_links.csv
                  -r ENSP00000000412,ENSP00000485663
-                 -w 1000
+                 -w 10000
                  -rp 0.01
                  --top 100
                  -p 4
                  -o top_100.csv
 ```
 
-Filter protein interaction network to include only interactions with score > 500, simulate 1000 random walks with a return probability of 5% and extract the top 50 genes. Note that we're passing ensemble gene ids and the program would also output gene ids instead of protein ids.
+Filter protein interaction network to include only interactions with score > 500, simulate 1000 random walks with a return probability of 5% and extract the top 50 genes. Note that we're passing Ensemble gene ids and the program would also output gene ids instead of protein ids.
 ```bash
 $ python main.py --db ~/protein_links.csv
                  -r ENSG00000000003,ENSG00000000005,ENSG00000000419

@@ -23,13 +23,18 @@ def get_protein_graph(protein_interactions, references):
                                     'protein2',
                                     'score')
 
-    # If minimum score filterincg is performed and
+    # If minimum score filtering is performed and
     # a reference protein is connected only to edges
     # that are removed, it'll be missing in the edgelist.
     # We make sure that reference nodes are added to the graph.
     for reference in references:
         if not graph.has_node(reference):
             graph.add_node(reference)
+            # Connect the reference node to itself to
+            # make sure there's at least one edge
+            # and prevent a division by zero
+            # when inverting the adjacency matrix.
+            graph.add_edge(reference, reference)
 
     logging.info("Initial number of nodes: %d", len(graph.nodes))
     filtered_graph = remove_disconnected_components(graph, references)

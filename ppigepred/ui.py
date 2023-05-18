@@ -4,7 +4,8 @@ import json
 import logging
 import multiprocessing
 
-import networkx as nx
+from collections import OrderedDict
+
 import pandas as pd
 
 from flask import Flask
@@ -12,15 +13,12 @@ from flask import render_template
 
 from .bioseqs import get_ensembl_release
 from .bioseqs import gene_ids_to_protein_ids
-from .bioseqs import protein_ids_to_gene_ids
 from .graphs import get_protein_graph
 from .graphs import filter_graph
 from .graphs import export_to_dot
 from .prediction import predict
 from .prediction import filter_probabilities
-
-
-logging.basicConfig(filename='logs.log', level=logging.DEBUG)
+from .prediction import convert_to_gene_probabilities
 
 
 class UI:
@@ -51,8 +49,8 @@ class UI:
                         type=int,
                         default=10)
     parser.add_argument('-m',
-                        '--min-score',
-                        help='Minimum score to filter out insignificant results.',
+                        '--min-density',
+                        help='Minimum density score to filter out insignificant results.',
                         type=float,
                         default=0.0005)
     parser.add_argument('-i',
@@ -85,6 +83,10 @@ class UI:
                         type=str,
                         default='GRCh38',
                         help='Allows to specify the assembly that will be used if --gene_ids flag is up.')
+    parser.add_argument('-log',
+                        '--loglevel',
+                        default='warning',
+                        help='Set logging level. Example --loglevel debug, default=warning')
 
     ref_group = parser.add_mutually_exclusive_group(required=True)
     ref_group.add_argument("-r",
@@ -106,6 +108,8 @@ class UI:
     @classmethod
     def run(cls):
         args = cls.parser.parse_args()
+
+        logging.basicConfig(level=args.loglevel.upper(), force=True)
 
         if args.references:
             references = args.references.split(',')
@@ -146,11 +150,13 @@ class UI:
         # Filter probabilities based on the user's input. It removes:
         # - nodes with low score
         # - nodes that are ranked too low
-        # - nodes not included in the candidates set
         probabilities = filter_probabilities(probabilities,
                                              candidates,
-                                             args.min_score,
-                                             args.top)
+                                             args.min_density)
+
+        probabilities = OrderedDict(sorted(probabilities.items(),
+                                           key=lambda x: x[1],
+                                           reverse=True))
 
         # Get the subgraph induced by the relevant nodes.
         graph = filter_graph(protein_graph, probabilities)
@@ -158,10 +164,10 @@ class UI:
         # If gene ids are used, convert the internally
         # used protein ids to gene ids for output.
         if args.gene_ids:
-            prot_to_gene_mapping = protein_ids_to_gene_ids(ensembl, probabilities)
-            graph = nx.relabel_nodes(graph, prot_to_gene_mapping)
-            probabilities = {prot_to_gene_mapping[prot_id]: prob
-                             for prot_id, prob in probabilities.items()}
+            probabilities = convert_to_gene_probabilities(probabilities,
+                                                          ensembl,
+                                                          graph,
+                                                          args.top)
 
         # If output file is provided, write the results there.
         # Else, just print them to stdout.
